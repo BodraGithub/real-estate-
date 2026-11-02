@@ -19,28 +19,60 @@ st.set_page_config(page_title="Real Estate Investment Advisor", page_icon="🏠"
 OUT, MODELS, PPSF, BLUE, CURRENT_YEAR = "outputs", "models", "Price_per_SqFt_calc", "#2a6fdb", 2025
 
 
-# ------------------------------------------------------------------ loading
-@st.cache_data
-def load_data():
-    return pd.read_csv(f"{OUT}/india_housing_cleaned.csv")
+# ------------------------------------------------------------------ data source: sidebar upload or saved default
+import io
+
+import train as T   # cleaning + model training code (same folder)
+
+st.sidebar.title("🏠 Investment Advisor")
+st.sidebar.subheader("📁 Data")
+upload = st.sidebar.file_uploader("Upload housing CSV", type="csv",
+                                  help="Same columns as india_housing_prices.csv. The data is cleaned and the models are "
+                                       "re-trained on it inside the app.")
+FIT_ROWS = 80_000
+
+
+@st.cache_resource(show_spinner="Cleaning data and training models… this can take a few minutes for large files.")
+def train_uploaded(data: bytes):
+    raw = pd.read_csv(io.BytesIO(data))
+    missing = [c for c in T.REQUIRED if c not in raw.columns]
+    if missing:
+        return {"missing": missing}
+    return T.train_models(raw, fit_rows=FIT_ROWS)
 
 
 @st.cache_resource
-def load_models():
+def load_saved():
+    if not (os.path.exists(f"{OUT}/india_housing_cleaned.csv") and os.path.exists(f"{MODELS}/app_metadata.json")):
+        return None
     with open(f"{MODELS}/app_metadata.json") as f:
         meta = json.load(f)
-    return joblib.load(f"{MODELS}/best_classifier.joblib"), joblib.load(f"{MODELS}/best_regressor.joblib"), meta
+    return dict(df=pd.read_csv(f"{OUT}/india_housing_cleaned.csv"), meta=meta,
+                clf=joblib.load(f"{MODELS}/best_classifier.joblib"), reg=joblib.load(f"{MODELS}/best_regressor.joblib"),
+                clf_df=pd.read_csv(f"{OUT}/classification_results.csv").set_index("model"),
+                reg_df=pd.read_csv(f"{OUT}/regression_results.csv").set_index("model"))
 
 
-if not (os.path.exists(f"{OUT}/india_housing_cleaned.csv") and os.path.exists(f"{MODELS}/app_metadata.json")):
-    st.title("🏠 Real Estate Investment Advisor")
-    st.error("Trained models not found. Put `india_housing_prices.csv` next to `train.py` and run "
-             "`python train.py` first, then restart the app.")
-    st.stop()
+if upload is not None:
+    art = train_uploaded(upload.getvalue())
+    if "missing" in art:
+        st.title("🏠 Real Estate Investment Advisor")
+        st.error("The uploaded file is missing these columns: " + ", ".join(art["missing"]))
+        st.stop()
+    st.sidebar.success(f"Using **{upload.name}**  \n{len(art['df']):,} rows after cleaning")
+else:
+    art = load_saved()
+    if art is None:
+        st.title("🏠 Real Estate Investment Advisor")
+        st.info("👈 Upload `india_housing_prices.csv` in the sidebar to get started "
+                "(or run `python train.py` once to save a default model).")
+        st.stop()
+    st.sidebar.caption("Using the saved default data and models. Upload a CSV to replace them.")
 
-df = load_data()
-clf, reg, meta = load_models()
+df, clf, reg, meta = art["df"], art["clf"], art["reg"], art["meta"]
 YEARS = int(meta["assumptions"]["years"])
+if upload is not None and meta.get("trained_on_rows", 0) < len(df):
+    st.sidebar.caption(f"Models trained on a {meta['trained_on_rows']:,}-row sample for speed.")
 
 
 def fmt_lakh(x):
@@ -228,7 +260,6 @@ GROUPS = {
 
 
 # ------------------------------------------------------------------ sidebar
-st.sidebar.title("🏠 Investment Advisor")
 page = st.sidebar.radio("Go to", ["Overview", "Data & Features", "EDA (20 questions)", "Property Explorer",
                                   "Investment Advisor (ML)", "Model Performance"])
 st.sidebar.caption(f"Classifier: {meta['best_classifier']}  \nRegressor: {meta['best_regressor']}")
@@ -469,7 +500,7 @@ def page_models():
     for col, name in zip(c, ["accuracy", "precision", "recall", "f1", "roc_auc"]):
         col.metric(name.replace("_", " ").upper(), f"{cm[name]:.3f}")
     st.caption(f"Baseline (always predict the majority class): accuracy {meta['baseline_accuracy']:.3f}")
-    st.dataframe(pd.read_csv(f"{OUT}/classification_results.csv").round(4).set_index("model"))
+    st.dataframe(art["clf_df"].round(4))
     l, r = st.columns(2)
     with l:
         fig, ax = plt.subplots(figsize=(4.5, 3.6))
@@ -485,7 +516,7 @@ def page_models():
     c[0].metric("RMSE (₹ lakhs)", f"{rm['rmse']:.2f}")
     c[1].metric("MAE (₹ lakhs)", f"{rm['mae']:.2f}")
     c[2].metric("R²", f"{rm['r2']:.4f}")
-    st.dataframe(pd.read_csv(f"{OUT}/regression_results.csv").round(4).set_index("model"))
+    st.dataframe(art["reg_df"].round(4))
     importance_chart(meta["regressor_importance"], "Regressor feature importance")
     st.markdown("**MLflow:** every model run is logged. View it with  \n"
                 "`mlflow ui --backend-store-uri sqlite:///mlflow.db`")
