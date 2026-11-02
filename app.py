@@ -509,10 +509,50 @@ def page_advisor():
 
     st.subheader("Compared with similar listings")
     sim = df[(df["City"] == city) & (df["BHK"] == bhk) & df["Price_in_Lakhs"].between(price * 0.8, price * 1.2)]
-    if sim.empty:
+       if sim.empty:
         st.caption("No similar listings (same city, same BHK, ±20% price).")
     else:
         s = st.columns(3)
         s[0].metric("Similar listings", f"{len(sim):,}")
         s[1].metric("Avg ₹/sq ft", f"₹{sim[PPSF].mean():,.0f}")
-        s[2].
+        s[2].metric("Good-investment share", f"{sim['Good_Investment'].mean():.1%}")
+        st.dataframe(sim.sort_values("Return_5Y_Pct", ascending=False)[
+            ["ID", "Locality", "Property_Type", "Size_in_SqFt", "Price_in_Lakhs", "Future_Price_5Y", "Good_Investment"]].head(10).round(2))
+    st.caption("Predictions come from models trained on rule-based targets. They are not real market forecasts or financial advice.")
+
+
+def page_models():
+    st.title("📈 Model Performance")
+    cm, rm = meta["classifier_metrics"], meta["regressor_metrics"]
+    st.subheader(f"Classification – {meta['best_classifier']}")
+    c = st.columns(5)
+    for col, name in zip(c, ["accuracy", "precision", "recall", "f1", "roc_auc"]):
+        col.metric(name.replace("_", " ").upper(), f"{cm[name]:.3f}")
+    st.caption(f"Baseline (always predict the majority class): accuracy {meta['baseline_accuracy']:.3f}")
+    st.dataframe(art["clf_df"].round(4))
+    l, r = st.columns(2)
+    with l:
+        fig, ax = plt.subplots(figsize=(4.5, 3.6))
+        sns.heatmap(np.array(meta["confusion_matrix"]), annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax,
+                    xticklabels=["Not good", "Good"], yticklabels=["Not good", "Good"])
+        ax.set(title="Confusion matrix (test set)", xlabel="Predicted", ylabel="Actual")
+        fig.tight_layout(); st.pyplot(fig); plt.close(fig)
+    with r:
+        importance_chart(meta["classifier_importance"], "Classifier feature importance")
+
+    st.subheader(f"Regression – {meta['best_regressor']}")
+    c = st.columns(3)
+    c[0].metric("RMSE (₹ lakhs)", f"{rm['rmse']:.2f}")
+    c[1].metric("MAE (₹ lakhs)", f"{rm['mae']:.2f}")
+    c[2].metric("R²", f"{rm['r2']:.4f}")
+    st.dataframe(art["reg_df"].round(4))
+    importance_chart(meta["regressor_importance"], "Regressor feature importance")
+    st.markdown("**MLflow:** every model run is logged. View it with  \n"
+                "`mlflow ui --backend-store-uri sqlite:///mlflow.db`")
+    st.warning("Scores are high because the targets were created from rules on the same data. Compare with the baseline "
+               "and do not read them as real-market accuracy.")
+
+
+{"Overview": page_overview, "Data & Features": page_data, "EDA (20 questions)": page_eda,
+ "Property Explorer": page_explorer, "Investment Advisor (ML)": page_advisor,
+ "Model Performance": page_models}[page]()
