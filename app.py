@@ -515,4 +515,4 @@ def page_advisor():
         s = st.columns(3)
         s[0].metric("Similar listings", f"{len(sim):,}")
         s[1].metric("Avg ₹/sq ft", f"₹{sim[PPSF].mean():,.0f}")
-        s[2].metric("Good-investment share", f"{sim['Good_Investment'].mean
+        s[2].
