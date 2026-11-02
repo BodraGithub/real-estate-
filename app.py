@@ -509,7 +509,7 @@ def page_advisor():
 
     st.subheader("Compared with similar listings")
     sim = df[(df["City"] == city) & (df["BHK"] == bhk) & df["Price_in_Lakhs"].between(price * 0.8, price * 1.2)]
-       if sim.empty:
+        if sim.empty:
         st.caption("No similar listings (same city, same BHK, ±20% price).")
     else:
         s = st.columns(3)
@@ -555,4 +555,4 @@ def page_models():
 
 {"Overview": page_overview, "Data & Features": page_data, "EDA (20 questions)": page_eda,
  "Property Explorer": page_explorer, "Investment Advisor (ML)": page_advisor,
- "Model Performance": page_models}[page]()
+ "Model Performance": page_models}[page]()  
